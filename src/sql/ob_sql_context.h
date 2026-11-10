@@ -586,6 +586,7 @@ public:
       ori_question_marks_count_(0),
       type_demotion_flag_(0),
       has_file_sql_(false),
+      has_ai_column_(false),
       has_hybrid_search_(false)
   {
   }
@@ -630,6 +631,7 @@ public:
     filter_ds_stat_cache_.reuse();
     type_demotion_flag_ = 0;
     has_file_sql_ = false;
+    has_ai_column_ = false;
     has_hybrid_search_ = false;
   }
 
@@ -741,6 +743,7 @@ public:
     };
   };
   bool has_file_sql_;
+  bool has_ai_column_;
   bool has_hybrid_search_;
 };
 

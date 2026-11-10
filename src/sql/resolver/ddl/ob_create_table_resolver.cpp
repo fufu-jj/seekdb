@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SQL_RESV
+#include "sql/engine/ai_column/ai_column.h"
 #include "sql/resolver/ddl/ob_create_table_resolver.h"
 #include "sql/resolver/dml/ob_select_resolver.h"
 #include "sql/resolver/ddl/ob_fts_index_builder_util.h"
@@ -385,6 +386,9 @@ int ObCreateTableResolver::resolve(const ParseNode &parse_tree)
         }
 
       }
+    }
+    if (OB_SUCC(ret)) {
+      ret = ai_column::prepare_schema(create_table_stmt->get_create_table_arg().schema_, params_);
     }
     if (OB_SUCC(ret)){
       if (OB_FAIL(deep_copy_string_in_part_expr(create_table_stmt))) {

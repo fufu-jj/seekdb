@@ -10988,5 +10988,18 @@
     "info_cn": "允许本地文件 SQL 查询与显式 CSV 导出，仍校验 secure_file_priv",
     "background_cn": "",
     "ref_url": ""
+  },
+  "ai_column_strict_read": {
+    "id": 10755,
+    "name": "ai_column_strict_read",
+    "default_value": "0",
+    "base_value": "0",
+    "data_type": "bool",
+    "info": "Reject statements referencing an AI column with any non-READY row.",
+    "flags": "SESSION | NEED_SERIALIZE | INFLUENCE_PLAN",
+    "publish_version": "1.0.0.0",
+    "info_cn": "AI 列严格读取",
+    "background_cn": "",
+    "ref_url": ""
   }
 }

@@ -1,0 +1,61 @@
+# Backfill existing rows, enforce result ownership, and limit strict reads to
+# explicit references even when BEFORE UPDATE requires an entire row record.
+connection default;
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py start 19125
+--disable_warnings
+drop database if exists ai_column_boundary;
+--enable_warnings
+create database ai_column_boundary;
+--error 0,11112
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('boundary_complete_ep');
+--error 0,11118
+call DBMS_AI_SERVICE.DROP_AI_MODEL('boundary_complete');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('boundary_complete',
+  '{"type":"completion","model_name":"mock-complete"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('boundary_complete_ep',
+  '{"ai_model_name":"boundary_complete","url":"http://127.0.0.1:19125/v1/chat/completions","access_key":"test-only","provider":"openai","request_model_name":"mock-complete"}');
+create table ai_column_boundary.docs(id bigint primary key, content varchar(100), category int);
+insert into ai_column_boundary.docs values(1,'one',0),(2,'two',0);
+alter table ai_column_boundary.docs add column result varchar(100)
+  AI COLUMN (AI_COMPLETE('boundary_complete',content));
+let $retry = 150;
+let $ready = 0;
+while ($retry)
+{
+  let $ready = `select count(*)=2 from ai_column_boundary.docs where result=concat('mock:',content)`;
+  if ($ready == 1)
+  {
+    let $retry = 0;
+  }
+  if ($ready == 0)
+  {
+    --real_sleep 0.1
+    dec $retry;
+  }
+}
+eval select $ready=1 as existing_rows_backfilled;
+--error 1235
+update ai_column_boundary.docs set result='forged' where id=1;
+--error 1235
+insert into ai_column_boundary.docs(id,content,result) values(3,'three','forged');
+--exec python3 mysql_test/test_suite/ai_column/include/ai_column_mock.py stop 19125
+alter table ai_column_boundary.docs retry ai column result where id=1;
+set session ai_column_strict_read=on;
+update ai_column_boundary.docs set category=category+1 where id=1;
+insert into ai_column_boundary.docs(id,content,category) values(3,'three',3);
+delete from ai_column_boundary.docs where id=3;
+select id,category from ai_column_boundary.docs order by id;
+--replace_regex /table_id=[0-9]+, column_id=[0-9]+/table_id=<table_id>, column_id=<column_id>/
+--error 11120
+select result from ai_column_boundary.docs where id=2;
+set session ai_column_strict_read=off;
+alter table ai_column_boundary.docs drop column result;
+insert into ai_column_boundary.docs values(4,'four',4);
+select count(*)=3 as ordinary_writes_after_drop from ai_column_boundary.docs;
+select count(*)=0 as dropped_column_metadata_removed
+from oceanbase.__all_ai_column a join oceanbase.__all_table t on t.table_id=a.table_id
+join oceanbase.__all_database d on d.database_id=t.database_id
+where d.database_name='ai_column_boundary';
+drop database ai_column_boundary;
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('boundary_complete_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('boundary_complete');

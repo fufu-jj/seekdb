@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SHARE_SCHEMA
 #include "sql/printer/ob_schema_printer.h"
+#include "sql/engine/ai_column/ai_column.h"
 #include "share/ob_autoincrement_service.h"
 #include "sql/resolver/expr/ob_raw_expr_util.h"
 
@@ -212,6 +213,9 @@ int ObSchemaPrinter::print_table_definition_columns(const ObTableSchema &table_s
           if (OB_FAIL(print_generated_column_definition(*col, buf, buf_len, table_schema, pos))) {
           }
         }
+        if (OB_SUCC(ret) && sql::ai_column::is_ai(*col)) {
+          ret = sql::ai_column::print_attribute(*col, buf, buf_len, pos);
+        }
         // mysql mode
         if (OB_SUCC(ret)) {
           if (!col->is_nullable()) {
@@ -231,7 +235,7 @@ int ObSchemaPrinter::print_table_definition_columns(const ObTableSchema &table_s
             SHARE_SCHEMA_LOG(WARN, "fail to print geometry srid", K(ret), K(srid));
           }
         }
-        if (OB_SUCC(ret) && !col->is_generated_column()) {
+        if (OB_SUCC(ret) && !col->is_generated_column() && !sql::ai_column::is_ai(*col)) {
           //if column is not permit null and default value does not specify , don't  display DEFAULT NULL
           if (OB_SUCC(ret)) {
             if (!(ObNullType == col->get_cur_default_value().get_type() && !col->is_nullable())
@@ -294,7 +298,7 @@ int ObSchemaPrinter::print_table_definition_columns(const ObTableSchema &table_s
         if (OB_SUCC(ret) && OB_FAIL(print_column_lob_params(*col, buf, buf_len, pos))) {
           SHARE_SCHEMA_LOG(WARN, "fail to print lob params", K(ret));
         }
-        if (OB_SUCC(ret) && 0 < strlen(col->get_comment())) {
+        if (OB_SUCC(ret) && !sql::ai_column::is_ai(*col) && 0 < strlen(col->get_comment())) {
           if (OB_FAIL(databuff_print_multi_objs(buf, buf_len, pos,
               " COMMENT '", ObHexEscapeSqlStr(col->get_comment_str()), "'"))) {
           }

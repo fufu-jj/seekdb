@@ -497,6 +497,9 @@ END_P SET_VAR DELIMITER
 %type <node> dynamic_sampling_hint
 %type <node> skip_index_type opt_skip_index_type_list
 %type <node> vec_index_params vec_index_param vec_index_param_value opt_with_vector_index_parameters
+%token <non_reserved_keyword> RETRY
+%type <node> ai_column_retry_stmt ai_column_show_stmt
+%type <node> ai_column_attribute ai_column_options ai_column_option_list ai_column_option
 %type <node> file_copy_stmt file_copy_source file_copy_options file_copy_option_list file_copy_option file_copy_value
 %type <node> file_table_expr file_table_call file_table_alias json_table_expr unnest_expr mock_jt_on_error_on_empty jt_column_list json_table_column_def
 %type <node> json_table_ordinality_column_def json_table_exists_column_def json_table_value_column_def json_table_nested_column_def
@@ -582,6 +585,8 @@ stmt:
   | delete_stmt             { $$ = $1; question_mark_issue($$, result); }
   | drop_table_stmt         { $$ = $1; check_question_mark($$, result); }
   | drop_view_stmt          { $$ = $1; check_question_mark($$, result); }
+  | ai_column_retry_stmt { $$ = $1; }
+  | ai_column_show_stmt { $$ = $1; }
   | file_copy_stmt          { $$ = $1; question_mark_issue($$, result); }
   | explain_stmt            { $$ = $1; question_mark_issue($$, result); }
   | create_outline_stmt     { $$ = $1; question_mark_issue($$, result); }
@@ -6175,6 +6180,7 @@ not NULLX
 {
   malloc_terminal_node($$, result->malloc_pool_, T_CONSTR_UNIQUE_KEY);
 }
+| ai_column_attribute { $$ = $1; }
 | COMMENT STRING_VALUE
 {
   malloc_non_terminal_node($$, result->malloc_pool_, T_COMMENT, 1, $2);
@@ -16627,6 +16633,56 @@ DAY
 *  JSON TABLE
 *============================================================*/
 
+ai_column_retry_stmt:
+alter_with_opt_hint TABLE relation_factor RETRY AI COLUMN relation_name
+{
+  (void)$1;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_ALTER_TABLE, 2, $3, $7);
+  $$->value_ = 600496;
+}
+|
+alter_with_opt_hint TABLE relation_factor RETRY AI COLUMN relation_name WHERE expr
+{
+  (void)$1;
+  dup_expr_string($9, result, @9.first_column, @9.last_column);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_ALTER_TABLE, 3, $3, $7, $9);
+  $$->value_ = 600496;
+}
+| ai_column_retry_stmt ',' alter_table_actions
+{
+  (void)$3;
+  $$ = $1;
+  $$->value_ = 600498;
+}
+;
+ai_column_show_stmt:
+SHOW AI COLUMNS FROM relation_factor
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_ALTER_TABLE, 1, $5);
+  $$->value_ = 600497;
+}
+;
+
+ai_column_attribute:
+AI COLUMN '(' expr ')' ai_column_options
+{
+  dup_expr_string($4, result, @4.first_column, @4.last_column);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_EXPR_LIST, 2, $4, $6);
+  $$->value_ = 600495;
+}
+;
+ai_column_options:
+/* empty */ { $$ = NULL; }
+| WITH '(' ai_column_option_list ')' { $$ = $3; }
+;
+ai_column_option_list:
+ai_column_option { malloc_list_node($$, result->malloc_pool_, T_EXPR_LIST, 2, 1, $1); }
+| ai_column_option_list ',' ai_column_option { push_back_list(result->malloc_pool_, result, $$, $1, $3); }
+;
+ai_column_option:
+relation_name COMP_EQ expr_const { malloc_non_terminal_node($$, result->malloc_pool_, T_OP_EQ, 2, $1, $3); }
+;
+
 file_copy_stmt:
 COPY file_copy_source TO STRING_VALUE file_copy_options
 {
@@ -17673,6 +17729,7 @@ ACCOUNT
 |       CONTAINS
 |       CONTRIBUTORS
 |       COPY
+|       RETRY
 |       COUNT
 |       COSINE
 |       CPU

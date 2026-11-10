@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SERVER
 
+#include "sql/engine/ai_column/ai_column.h"
 #include "config_bridge.h"
 #include "config_checkers.h"
 #ifndef _WIN32
@@ -1325,6 +1326,9 @@ int ObServer::start()
       FLOG_INFO("server metadata is ready");
     }
 
+    if (OB_SUCC(ret)) {
+      ret = sql::ai_column::Worker::instance().start();
+    }
     if (FAILEDx(net_frame_.start())) {
       LOG_ERROR("fail to start net frame", KR(ret));
     } else {
@@ -1551,6 +1555,8 @@ int ObServer::stop()
 {
   int ret = OB_SUCCESS;
   int fail_ret = OB_SUCCESS;
+  sql::ai_column::Worker::instance().stop();
+  sql::ai_column::Worker::instance().wait();
   FLOG_INFO("[OBSERVER_NOTICE] stop observer begin");
   LOG_DBA_INFO_V2(OB_SERVER_STOP_BEGIN, "observer stop begin.");
 

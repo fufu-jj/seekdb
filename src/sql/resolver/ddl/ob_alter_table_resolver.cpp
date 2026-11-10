@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SQL_RESV
+#include "sql/engine/ai_column/ai_column.h"
 #include "config_bridge.h"
 #include "sql/resolver/ddl/ob_alter_table_resolver.h"
 #include "sql/resolver/expr/ob_raw_expr_part_expr_checker.h"
@@ -235,6 +236,9 @@ int ObAlterTableResolver::resolve(const ParseNode &parse_tree)
         ret = OB_ERR_UNEXPECTED;
       }
     }
+  }
+  if (OB_SUCC(ret) && table_schema_) {
+    ret = ai_column::prepare_schema(get_alter_table_stmt()->get_alter_table_arg().alter_table_schema_, params_, table_schema_);
   }
   DEBUG_SYNC(HANG_BEFORE_RESOLVER_FINISH);
   return ret;

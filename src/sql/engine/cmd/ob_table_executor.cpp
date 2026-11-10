@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SQL_ENG
+#include "sql/engine/ai_column/ai_column.h"
 #include "config_bridge.h"
 #include "common/ob_timeout_ctx.h"
 #include "lib/stat/ob_diagnostic_info_guard.h"
@@ -492,6 +493,9 @@ int ObCreateTableExecutor::execute(ObExecContext &ctx, ObCreateTableStmt &stmt)
       if (OB_FAIL(execute_ctas(ctx, stmt))){
       }
     }
+    if (OB_SUCC(ret)) {
+      ret = ai_column::install(*my_session, create_table_arg.db_name_, table_schema.get_table_name_str());
+    }
     SERVER_EVENT_ADD("ddl", "create table execute finish",
       "ret", ret,
       "trace_id", *ObCurTraceId::get_trace_id(),
@@ -866,6 +870,13 @@ int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
             *ctx.get_query_runtime_environment(), ctx.local_command_service(), is_support_cancel))) {
         }
       }
+    }
+    if (OB_SUCC(ret)) {
+      const auto &schema = alter_table_arg.alter_table_schema_;
+      const bool renamed = alter_table_arg.alter_table_schema_.alter_option_bitset_.has_member(obcall::ObAlterTableArg::TABLE_NAME);
+      ret = ai_column::install(*my_session,
+          renamed && !schema.get_database_name().empty() ? schema.get_database_name() : schema.get_origin_database_name(),
+          renamed ? schema.get_table_name_str() : schema.get_origin_table_name());
     }
     char table_info_buffer[256];
     snprintf(table_info_buffer, sizeof(table_info_buffer), "table_id:%ld, hidden_table_id:%ld", 

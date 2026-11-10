@@ -3529,8 +3529,15 @@ int ObSql::need_add_plan(const ObPlanCacheCtx &pc_ctx,
              || OB_ISNULL(result.get_exec_context().get_stmt_factory()->get_query_ctx())) {
     ret = OB_ERR_UNEXPECTED;
   } else if (result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_hybrid_search()
-             || result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_file_sql_) {
+             || result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_file_sql_
+             || result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_ai_column_) {
     need_add_plan = false;
+    // The batch rewrite has reduced INSERT VALUES to its first row. A plan
+    // excluded from the cache must retry with the original statement; otherwise
+    // the batch executor can reuse that first row for every parameter group.
+    if (pc_ctx.sql_ctx_.is_batch_params_execute()) {
+      ret = OB_BATCHED_MULTI_STMT_ROLLBACK;
+    }
   }
   return ret;
 }

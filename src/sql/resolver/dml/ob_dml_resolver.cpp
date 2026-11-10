@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SQL_RESV
+#include "sql/engine/ai_column/ai_column.h"
 #include "config_bridge.h"
 #include "ob_dml_resolver.h"
 #include "sql/resolver/dml/ob_view_table_resolver.h"
@@ -1882,7 +1883,8 @@ int ObDMLResolver::resolve_basic_column_item(const TableItem &table_item,
     if (OB_FAIL(ret)) {
       //do nothing
     } else if (OB_FAIL(schema_checker_->get_table_schema( tid, table_schema))) {
-    } else if (OB_FAIL(get_column_schema(tid, column_name, col_schema, include_hidden))) {
+    } else if (OB_FAIL(get_column_schema(tid, column_name, col_schema,
+        include_hidden || (ai_column::is_private(column_name) && ai_column::internal_access())))) {
     } else if (OB_ISNULL(col_schema)) {
       ret = OB_ERR_UNEXPECTED;
     } else if (OB_FAIL(ObRawExprUtils::build_column_expr(*params_.expr_factory_, *col_schema, session_info_, col_expr))) {

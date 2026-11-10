@@ -15,6 +15,8 @@
  */
 
 #define USING_LOG_PREFIX SQL_RESV
+#include "sql/engine/ai_column/ai_column.h"
+#include "sql/parser/ob_parser.h"
 #include "sql/resolver/ob_resolver.h"
 #include "lib/utility/ob_smart_call.h"
 #include "lib/stat/ob_diagnostic_info_guard.h"
@@ -152,6 +154,22 @@ int ObResolver::resolve(IsPrepared if_prepared, const ParseNode &parse_tree, ObS
       parse_tree.children_[0] != nullptr && parse_tree.children_[0]->type_ == T_INT &&
       parse_tree.children_[0]->value_ == 600493) {
     return resolve_file_special(parse_tree, stmt);
+  }
+  if (parse_tree.type_ == T_ALTER_TABLE && parse_tree.value_ == 600498) {
+    LOG_USER_ERROR(OB_NOT_SUPPORTED, "combining AI COLUMN RETRY with another ALTER action");
+    return OB_NOT_SUPPORTED;
+  }
+  if (parse_tree.type_ == T_ALTER_TABLE && (parse_tree.value_ == 600496 || parse_tree.value_ == 600497)) {
+    ObString sql;
+    int err = ai_column::rewrite_special(parse_tree, params_, sql);
+    if (err != OB_SUCCESS) return err;
+    ParseResult result;
+    ObParser parser(*params_.allocator_, params_.session_info_->get_sql_mode());
+    if (OB_SUCCESS != (err = parser.parse(sql, result))) return err;
+    if (!result.result_tree_ || result.result_tree_->num_child_ != 1) return OB_ERR_UNEXPECTED;
+    ai_column::InternalGuard guard;
+    params_.query_ctx_->has_ai_column_ = true;
+    return resolve(if_prepared, *result.result_tree_->children_[0], stmt);
   }
   ACTIVE_SESSION_FLAG_SETTER_GUARD(in_resolve);
   int ret = OB_SUCCESS;
@@ -636,6 +654,9 @@ int ObResolver::resolve(IsPrepared if_prepared, const ParseNode &parse_tree, ObS
         break;
       }
     }  // end switch
+    if (OB_SUCC(ret) && stmt->is_dml_stmt()) {
+      ret = ai_column::check_statement(*static_cast<ObDMLStmt *>(stmt), params_);
+    }
     if (OB_SUCC(ret) && stmt->is_dml_write_stmt()) {
       // todo yanli:check leader-follower database
     }

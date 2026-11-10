@@ -517,7 +517,13 @@ int ObDelUpdResolver::resolve_additional_assignments(ObIArray<ObTableAssignment>
                                                                  schema_guard,
                                                                  assigns.at(i).assignments_,
                                                                  update_with_vector_index))) {
+    } else if (trigger_exist && !update_with_vector_index &&
+               OB_FAIL(ObVectorIndexUtil::check_table_has_vector_index(
+                   *table_schema, *schema_guard, update_with_vector_index))) {
     } else {
+      // BEFORE UPDATE can modify a vector absent from the explicit SET list.
+      // Its internal identifier must follow the same regeneration path as an
+      // explicit vector assignment, including a transition to NULL.
       for (ObTableSchema::const_column_iterator iter = table_schema->column_begin();
           (OB_SUCCESS == ret && iter != table_schema->column_end()); ++iter) {
         ColumnItem *col_item = NULL;

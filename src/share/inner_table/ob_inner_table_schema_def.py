@@ -2468,6 +2468,32 @@ def_table_schema(**all_objauth_mysql_def)
 def_table_schema(**gen_history_table_def(1134, all_objauth_mysql_def))
 
 
+# AI column definitions and transactionally maintained asynchronous work queue.
+# Result/state values remain in the base table so native index maintenance applies.
+def_table_schema(
+  owner='competition', table_name='__all_ai_column', table_id='1140',
+  table_type='SYSTEM_TABLE', gm_columns=['gmt_create', 'gmt_modified'],
+  rowkey_columns=[('table_id','int'),('column_id','int')],
+  is_cluster_private=False, meta_record_in_sys=False,
+  normal_columns=[('column_name','varchar:256','false'),
+    ('normalized_expr','varchar:16384','false'),('dependency_columns','varchar:4096','false'),
+    ('max_retries','int','false','2'),('definition_version','int','false','1'),
+    ('state_column_id','int','false'),('request_column_id','int','false'),
+    ('result_spec_column_id','int','false'),('database_name','varchar:256','false'),
+    ('table_name','varchar:256','false'),('result_type','varchar:256','false'),
+    ('owner_id','int','false')])
+def_table_schema(
+  owner='competition', table_name='__all_ai_column_task', table_id='1141',
+  table_type='SYSTEM_TABLE', gm_columns=['gmt_create', 'gmt_modified'],
+  rowkey_columns=[('table_id','int'),('rowkey_hash','varchar:64'),('column_id','int')],
+  is_cluster_private=False, meta_record_in_sys=False,
+  normal_columns=[('request_id','varchar:64','false'),('definition_version','int','false','1'),
+    ('rowkey_predicate','varchar:8192','false'),('state','int','false','0'),
+    ('retry_count','int','false','0'),('eligible_ts','timestamp','false'),
+    ('lease_owner','varchar:64','true'),('lease_until','timestamp','true'),
+    ('result_sql','varchar:16384','true'),('last_error','int','false','0')])
+
+
 # Reserved position (placeholder before this line)
 # Placeholder suggestion for this section: Use actual table names for placeholders
 ################################################################################

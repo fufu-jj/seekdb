@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SQL_RESV
+#include "sql/engine/ai_column/ai_column.h"
 #include "config_bridge.h"
 #include "ob_ddl_resolver.h"
 #include "data_plane/blocksstable/ob_index_block_util.h"
@@ -2164,6 +2165,10 @@ int ObDDLResolver::resolve_normal_column_attribute(ObColumnSchemaV2 &column,
           resolve_stat.is_autoincrement_ = true;
         }
         break;
+      case T_EXPR_LIST: {
+        ret = ai_column::resolve_attribute(column, *attr_node);
+        break;
+      }
       case T_COMMENT:{
         if (attr_node->num_child_ != 1
             || OB_ISNULL(attr_node->children_[0])
@@ -2172,6 +2177,10 @@ int ObDDLResolver::resolve_normal_column_attribute(ObColumnSchemaV2 &column,
           SQL_RESV_LOG(WARN, "invalid node!", K(ret));
         } else {
           ObString comment(attr_node->children_[0]->str_len_, attr_node->children_[0]->str_value_);
+          if (comment.prefix_match("seekdb.ai-column.") || ai_column::is_ai(column)) {
+            LOG_USER_ERROR(OB_NOT_SUPPORTED, "reserved AI COLUMN metadata comment");
+            return OB_NOT_SUPPORTED;
+          }
           if (OB_FAIL(ObSQLUtils::convert_sql_text_to_schema_for_storing(*allocator_, session_info_->get_dtc_params(), comment))) {
           } else {
             int64_t comment_length = comment.length();
@@ -2416,6 +2425,10 @@ int ObDDLResolver::resolve_generated_column_attribute(ObColumnSchemaV2 &column,
         SQL_RESV_LOG(WARN, "invalid node!", K(ret));
       } else {
         ObString comment(attr_node->children_[0]->str_len_, attr_node->children_[0]->str_value_);
+        if (comment.prefix_match("seekdb.ai-column.") || ai_column::is_ai(column)) {
+          LOG_USER_ERROR(OB_NOT_SUPPORTED, "reserved AI COLUMN metadata comment");
+          return OB_NOT_SUPPORTED;
+        }
         if (OB_FAIL(ObSQLUtils::convert_sql_text_to_schema_for_storing(*allocator_, session_info_->get_dtc_params(), comment))) {
         } else {
           int64_t comment_length = comment.length();
