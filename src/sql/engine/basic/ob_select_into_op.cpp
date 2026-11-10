@@ -43,6 +43,10 @@ OB_SERIALIZE_MEMBER((ObSelectIntoSpec, ObOpSpec), into_type_, user_vars_, outfil
 
 int ObSelectIntoOp::inner_open()
 {
+  if (MY_SPEC.external_properties_.str_.prefix_match("SEEKDB_FILE_SQL_1")) {
+    opened_ = true;
+    return open_file_copy();
+  }
   int ret = OB_SUCCESS;
   ObSQLSessionInfo *session = NULL;
   if (OB_ISNULL(session = ctx_.get_my_session())) {
@@ -188,6 +192,9 @@ int ObSelectIntoOp::calc_outfile_path()
 }
 int ObSelectIntoOp::inner_get_next_row()
 {
+  if (file_exporter_) {
+    return file_copy_row();
+  }
   int ret = 0 == top_limit_cnt_ ? OB_ITER_END : OB_SUCCESS;
   int64_t row_count = 0;
   const ObItemType into_type = MY_SPEC.into_type_;
@@ -236,6 +243,9 @@ int ObSelectIntoOp::inner_get_next_row()
 
 int ObSelectIntoOp::inner_get_next_batch(const int64_t max_row_cnt)
 {
+  if (file_exporter_) {
+    return file_copy_batch(max_row_cnt);
+  }
   int ret = OB_SUCCESS;
   const ObBatchRows *child_brs = NULL;
   int64_t batch_size = min(max_row_cnt, MY_SPEC.max_batch_size_);
@@ -324,6 +334,10 @@ int ObSelectIntoOp::inner_rescan()
 
 int ObSelectIntoOp::inner_close()
 {
+  if (file_exporter_) {
+    file_exporter_.reset();
+    return OB_SUCCESS;
+  }
   int ret = OB_SUCCESS;
   if (OB_NOT_NULL(data_writer_) && OB_FAIL(data_writer_->close_data_writer())) {
   }
@@ -1275,6 +1289,7 @@ int ObSelectIntoOp::new_data_writer(ObExternalFileWriter *&data_writer)
 
 void ObSelectIntoOp::destroy()
 {
+  file_exporter_.reset();
   if (OB_NOT_NULL(data_writer_)) {
     data_writer_->~ObExternalFileWriter();
   }
@@ -1284,3 +1299,108 @@ void ObSelectIntoOp::destroy()
 
 }
 }
+
+namespace oceanbase {
+namespace sql {
+int ObSelectIntoOp::open_file_copy() {
+  int ret = OB_SUCCESS;
+  ObObj enabled;
+  ObString root;
+  file_sql::Descriptor desc;
+  auto s = MY_SPEC.external_properties_.str_;
+  if (OB_FAIL(ctx_.get_my_session()->get_sys_variable(share::SYS_VAR_ENABLE_FILE_SQL, enabled))) {
+  } else if (enabled.get_int() != 1)
+    ret = OB_NOT_SUPPORTED;
+  else if (OB_FAIL(share::schema::ObSchemaUtils::get_runtime_varchar_variable(
+               *GCTX.schema_service_, share::SYS_VAR_SECURE_FILE_PRIV, ctx_.get_allocator(),
+               root))) {
+  } else if (!desc.decode(std::string(s.ptr(), s.length())))
+    ret = OB_ERR_UNEXPECTED;
+  else {
+    file_exporter_.reset(new file_sql::CsvExporter());
+    ret = file_exporter_->open(desc, std::string(root.ptr(), root.length()));
+    if (ret) LOG_USER_ERROR(OB_NOT_SUPPORTED, file_exporter_->error().c_str());
+  }
+  return ret;
+}
+int ObSelectIntoOp::export_file_row() {
+  int ret = OB_SUCCESS;
+  std::vector<file_sql::Cell> row;
+  for (int64_t i = 0; OB_SUCC(ret) && i < MY_SPEC.select_exprs_.count(); i++) {
+    ObExpr *expr = MY_SPEC.select_exprs_.at(i);
+    ObDatum *datum = nullptr;
+    file_sql::Cell value;
+    if (OB_FAIL(expr->eval(eval_ctx_, datum))) {
+    } else if (datum->is_null()) {
+    } else {
+      value.null = false;
+      ObObj obj;
+      if (OB_FAIL(datum->to_obj(obj, expr->obj_meta_))) {
+      } else if (obj.is_string_type()) {
+        auto text = obj.get_string();
+        value.text.assign(text.ptr(), text.length());
+      } else {
+        std::vector<char> buf(256);
+        int64_t pos = 0;
+        ret = obj.print_plain_str_literal(buf.data(), buf.size(), pos);
+        if (OB_SUCC(ret)) value.text.assign(buf.data(), pos);
+      }
+    }
+    row.push_back(std::move(value));
+  }
+  if (OB_SUCC(ret)) ret = file_exporter_->write(row);
+  return ret;
+}
+int ObSelectIntoOp::file_copy_row() {
+  int ret = OB_SUCCESS;
+  int64_t count = 0;
+  while (OB_SUCC(ret)) {
+    clear_evaluated_flag();
+    if (OB_FAIL(ctx_.check_status())) {
+    } else if (OB_FAIL(child_->get_next_row())) {
+    } else {
+      ret = export_file_row();
+      ++count;
+    }
+  }
+  if (ret == OB_ITER_END) {
+    ret = file_exporter_->finish();
+    if (OB_SUCC(ret)) {
+      ctx_.get_physical_plan_ctx()->set_affected_rows(count);
+      ret = OB_ITER_END;
+    }
+  }
+  return ret;
+}
+int ObSelectIntoOp::file_copy_batch(int64_t max_row_cnt) {
+  int ret = OB_SUCCESS;
+  int64_t count = 0;
+  const ObBatchRows *batch = nullptr;
+  while (OB_SUCC(ret)) {
+    if (OB_FAIL(ctx_.check_status())) {
+    } else if (OB_FAIL(child_->get_next_batch(max_row_cnt, batch))) {
+    } else {
+      for (int64_t i = 0; OB_SUCC(ret) && i < batch->size_; i++)
+        if (!batch->skip_->at(i)) {
+          ObEvalCtx::BatchInfoScopeGuard guard(eval_ctx_);
+          guard.set_batch_size(batch->size_);
+          guard.set_batch_idx(i);
+          clear_evaluated_flag();
+          ret = export_file_row();
+          ++count;
+        }
+      if (OB_SUCC(ret) && batch->end_) {
+        ret = file_exporter_->finish();
+        if (OB_SUCC(ret)) {
+          brs_.size_ = 0;
+          brs_.end_ = true;
+          ctx_.get_physical_plan_ctx()->set_affected_rows(count);
+          break;
+        }
+      }
+    }
+  }
+  return ret;
+}
+}  // namespace sql
+}  // namespace oceanbase

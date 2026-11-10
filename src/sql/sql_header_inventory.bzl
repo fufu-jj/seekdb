@@ -1,6 +1,7 @@
 """Native public/private header ownership for the SQL module."""
 
 SQL_PUBLIC_HEADER_ROOTS = [
+    "engine/basic/ob_file_scan_utils.h",
     "code_generator/ob_expr_generator_impl.h",
     "code_generator/ob_static_engine_expr_cg.h",
     "das/iter/ob_das_iter.h",

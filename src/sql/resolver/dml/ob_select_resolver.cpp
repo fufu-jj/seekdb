@@ -3083,6 +3083,7 @@ int ObSelectResolver::resolve_into_outfile_without_format(const ParseNode *node,
 
 int ObSelectResolver::resolve_into_clause(const ParseNode *node)
 {
+  if (node && node->type_ == T_INTO_OUTFILE && node->value_ == 600494) { return resolve_file_copy_into(*node); }
   int ret = OB_SUCCESS;
   if (NULL != node) {
     current_scope_ = T_INTO_SCOPE;

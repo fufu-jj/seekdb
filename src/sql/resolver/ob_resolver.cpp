@@ -148,6 +148,11 @@ int ObResolver::resolve(IsPrepared if_prepared, const ParseNode &parse_tree, ObS
   do {                                                                        \
     ret = select_stmt_resolver_func<Ob##name##Resolver>(params_, parse_tree, stmt); \
   } while (0)
+  if (parse_tree.type_ == T_EXPLAIN && parse_tree.num_child_ == 5 &&
+      parse_tree.children_[0] != nullptr && parse_tree.children_[0]->type_ == T_INT &&
+      parse_tree.children_[0]->value_ == 600493) {
+    return resolve_file_special(parse_tree, stmt);
+  }
   ACTIVE_SESSION_FLAG_SETTER_GUARD(in_resolve);
   int ret = OB_SUCCESS;
   const ParseNode *real_parse_tree = NULL;

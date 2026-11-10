@@ -25,6 +25,17 @@ namespace oceanbase
 namespace sql
 {
 
+bool ObLogFunctionTable::is_file_scan() const
+{
+  const ObRawExpr *expr = get_value_expr();
+  if (expr == nullptr || !expr->is_const_raw_expr()) {
+    return false;
+  }
+  const ObObj &value = static_cast<const ObConstRawExpr *>(expr)->get_value();
+  return value.is_string_type() && value.get_string().length() >= 17
+         && MEMCMP(value.get_string().ptr(), "SEEKDB_FILE_SQL_1", 17) == 0;
+}
+
 int ObLogFunctionTable::generate_access_exprs()
 {
   int ret = OB_SUCCESS;
@@ -88,6 +99,9 @@ int ObLogFunctionTable::get_plan_item_info(PlanText &plan_text,
                   plan_item.special_predicates_len_);
   }
   if (OB_SUCC(ret)) {
+    if (is_file_scan() && get_plan() != nullptr) {
+      plan_item.rowset_ = get_plan()->get_optimizer_context().get_batch_size();
+    }
     const ObString &name = get_table_name();
     BUF_PRINT_OB_STR(name.ptr(), 
                      name.length(), 

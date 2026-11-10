@@ -35,6 +35,7 @@ public:
   void add_values_expr(ObRawExpr* expr) { value_expr_ = expr; }
   const ObRawExpr* get_value_expr() const { return value_expr_; }
   ObRawExpr* get_value_expr() { return value_expr_; }
+  bool is_file_scan() const;
   virtual uint64_t hash(uint64_t seed) const override;
   int generate_access_exprs();
   ObIArray<ObRawExpr*> &get_access_exprs() { return access_exprs_; }

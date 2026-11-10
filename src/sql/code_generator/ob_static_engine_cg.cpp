@@ -111,6 +111,17 @@ using namespace share::schema;
 namespace sql
 {
 
+namespace {
+// File scans alone support batches. Other FUNCTION_TABLE producers retain their
+// existing scalar path, even when they occur in the same native SQL plan.
+bool is_file_scan(const ObLogicalOperator *op) {
+  if (op == nullptr || op->get_type() != log_op_def::LOG_FUNCTION_TABLE) {
+    return false;
+  }
+  return static_cast<const ObLogFunctionTable *>(op)->is_file_scan();
+}
+}  // namespace
+
 struct ObFilterTSC
 {
 };
@@ -473,9 +484,9 @@ int ObStaticEngineCG::check_vectorize_supported(bool &support,
       ObPhyOperatorType type = PHY_INVALID;
       if (OB_FAIL(get_phy_op_type(*op, type, is_root_job))) {
       } else {
-      if (ObOperatorFactory::is_vectorized(type)) {
-        support = true;
-      }
+        if (ObOperatorFactory::is_vectorized(type) || is_file_scan(op)) {
+          support = true;
+        }
       ret = check_op_vectorization(op, schema_guard, type, disable_vectorize);
       if (OB_FAIL(ret)) {
       } else if (log_op_def::LOG_TABLE_SCAN == op->get_type()) {
@@ -5509,6 +5520,13 @@ int ObStaticEngineCG::generate_spec(ObLogFunctionTable &op, ObFunctionTableSpec 
     ret = OB_ERR_UNEXPECTED;
   } else if (OB_FAIL(generate_rt_expr(*value_raw_expr, value_expr))) {
   } else {
+    const bool file_sql = is_file_scan(&op);
+    if (file_sql) {
+      spec.max_batch_size_ = phy_plan_->get_batch_size();
+    }
+    if (file_sql) {
+      OZ(spec.file_column_ids_.init(op.get_stmt()->get_column_size() + 1));
+    }
     spec.has_correlated_expr_ = value_raw_expr->has_flag(CNT_DYNAMIC_PARAM);
     spec.value_expr_ = value_expr;
     for (int64_t i = 0; OB_SUCC(ret) && i < op.get_output_exprs().count(); ++i) {
@@ -5526,7 +5544,13 @@ int ObStaticEngineCG::generate_spec(ObLogFunctionTable &op, ObFunctionTableSpec 
         OZ (mark_expr_self_produced(col_item->expr_));
         OZ (generate_rt_expr(*col_item->expr_, rt_expr));
         OZ (spec.column_exprs_.push_back(rt_expr));
+        if (file_sql) {
+          OZ(spec.file_column_ids_.push_back(col_item->column_id_ - OB_APP_MIN_COLUMN_ID));
+        }
       }
+    }
+    if (file_sql && spec.file_column_ids_.empty()) {
+      OZ(spec.file_column_ids_.push_back(-1));
     }
   }
   return ret;
@@ -6499,7 +6523,7 @@ int ObStaticEngineCG::exist_registered_vec_op(ObLogicalOperator &op, const bool 
   ObPhyOperatorType phy_type = PHY_INVALID;
   exist = false;
   if (OB_FAIL(get_phy_op_type(op, phy_type, is_root_job))) {
-  } else if (ObOperatorFactory::is_vectorized(phy_type)) {
+  } else if (ObOperatorFactory::is_vectorized(phy_type) || is_file_scan(&op)) {
     exist = true;
   } else {
     for (int i = 0; !exist && OB_SUCC(ret) && i < op.get_num_of_child(); i++) {

@@ -3926,6 +3926,7 @@ int ObDMLResolver::resolve_json_table_item(const ParseNode &parse_tree, TableIte
 int ObDMLResolver::resolve_function_table_item(const ParseNode &parse_tree,
                                                TableItem *&tbl_item)
 {
+  if (parse_tree.value_ == 600492) { return resolve_file_table_item(parse_tree, tbl_item); }
   int ret = OB_SUCCESS;
   ObDMLStmt *stmt = get_stmt();
   ParseNode *alias_node = NULL;
@@ -7475,7 +7476,10 @@ int ObDMLResolver::resolve_function_table_column_item(const TableItem &table_ite
   CK (OB_LIKELY(table_item.is_function_table()));
   CK (OB_NOT_NULL(table_item.function_table_expr_));
   if (OB_SUCC(ret)) {
-    if (table_item.function_table_expr_->get_result_type().is_ext()) {
+    if (table_item.function_table_expr_->is_const_raw_expr()
+        && table_item.function_table_expr_->get_result_type().is_string_type()) {
+      ret = resolve_file_table_columns(table_item, col_items);
+    } else if (table_item.function_table_expr_->get_result_type().is_ext()) {
       ret = resolve_function_table_column_item_udf(table_item, col_items);
     } else {
       ret = resolve_function_table_column_item_sys_func(table_item, col_items);

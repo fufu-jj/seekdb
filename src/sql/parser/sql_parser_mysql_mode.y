@@ -497,7 +497,8 @@ END_P SET_VAR DELIMITER
 %type <node> dynamic_sampling_hint
 %type <node> skip_index_type opt_skip_index_type_list
 %type <node> vec_index_params vec_index_param vec_index_param_value opt_with_vector_index_parameters
-%type <node> json_table_expr unnest_expr mock_jt_on_error_on_empty jt_column_list json_table_column_def
+%type <node> file_copy_stmt file_copy_source file_copy_options file_copy_option_list file_copy_option file_copy_value
+%type <node> file_table_expr file_table_call file_table_alias json_table_expr unnest_expr mock_jt_on_error_on_empty jt_column_list json_table_column_def
 %type <node> json_table_ordinality_column_def json_table_exists_column_def json_table_value_column_def json_table_nested_column_def
 %type <node> opt_value_on_empty_or_error_or_mismatch opt_on_mismatch
 %type <node> table_values_clause table_values_clause_with_order_by_and_limit values_row_list row_value
@@ -581,6 +582,7 @@ stmt:
   | delete_stmt             { $$ = $1; question_mark_issue($$, result); }
   | drop_table_stmt         { $$ = $1; check_question_mark($$, result); }
   | drop_view_stmt          { $$ = $1; check_question_mark($$, result); }
+  | file_copy_stmt          { $$ = $1; question_mark_issue($$, result); }
   | explain_stmt            { $$ = $1; question_mark_issue($$, result); }
   | create_outline_stmt     { $$ = $1; question_mark_issue($$, result); }
   | alter_outline_stmt      { $$ = $1; question_mark_issue($$, result); }
@@ -10831,6 +10833,7 @@ tbl_name
   unname_node->sql_str_off_ = @2.first_column;
   $$->value_ = 1; //lateral
 }
+| file_table_expr { $$ = $1; }
 | json_table_expr
 {
   $$ = $1;
@@ -12265,7 +12268,7 @@ explain_or_desc relation_factor opt_desc_column_option
   malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_COLUMNS, 4, $$, $2, NULL, $3);
 }
 
-| explain_or_desc explainable_stmt { GEN_EXPLAN_STMT($1, $$, 0, 0, $2, NULL, NULL);}
+| explain_or_desc explainable_stmt { GEN_EXPLAN_STMT($1, $$, 0, 0, $2, NULL, NULL); if ($1 != NULL) { malloc_terminal_node($$->children_[0], result->malloc_pool_, T_INT); $$->children_[0]->value_ = 600493; $$->children_[0]->is_hidden_const_ = 1; } }
 | explain_or_desc PRETTY explainable_stmt { GEN_EXPLAN_STMT($1, $$, 0, T_PRETTY, $3, NULL, NULL);}
 | explain_or_desc PRETTY_COLOR explainable_stmt { GEN_EXPLAN_STMT($1, $$, 0, T_PRETTY_COLOR, $3, NULL, NULL);}
 
@@ -12306,8 +12309,8 @@ explain_or_desc relation_factor opt_desc_column_option
 
 explain_or_desc:
 EXPLAIN {$$ = NULL;}
-| DESCRIBE {$$ = NULL;}
-| DESC  {$$ = NULL;}
+| DESCRIBE { malloc_terminal_node($$, result->malloc_pool_, T_INT); $$->value_ = 1; }
+| DESC { malloc_terminal_node($$, result->malloc_pool_, T_INT); $$->value_ = 1; }
 ;
 
 explainable_stmt:
@@ -16623,6 +16626,71 @@ DAY
 *
 *  JSON TABLE
 *============================================================*/
+
+file_copy_stmt:
+COPY file_copy_source TO STRING_VALUE file_copy_options
+{
+  ParseNode *into = NULL;
+  malloc_non_terminal_node(into, result->malloc_pool_, T_INTO_OUTFILE, 2, $4, $5);
+  into->value_ = 600494;
+  $$ = $2;
+  if ($$->children_[PARSE_SELECT_INTO] != NULL || $$->children_[PARSE_SELECT_INTO_EXTRA] != NULL) { yyerror(NULL, result, "COPY source already has INTO"); YYERROR; }
+  $$->children_[PARSE_SELECT_INTO] = into;
+}
+;
+file_copy_source:
+'(' select_no_parens ')' { $$ = $2; }
+| relation_factor
+{
+  ParseNode *star = NULL, *project = NULL, *from = NULL, *table = NULL;
+  malloc_terminal_node(star, result->malloc_pool_, T_STAR);
+  malloc_non_terminal_node(project, result->malloc_pool_, T_PROJECT_STRING, 1, star);
+  dup_string_to_node(project, result->malloc_pool_, "*");
+  merge_nodes(project, result, T_PROJECT_LIST, project);
+  malloc_non_terminal_node(table, result->malloc_pool_, T_ORG, 4, $1, NULL, NULL, NULL);
+  merge_nodes(from, result, T_FROM_LIST, table);
+  malloc_select_node($$, result->malloc_pool_);
+  $$->children_[PARSE_SELECT_SELECT] = project;
+  $$->children_[PARSE_SELECT_FROM] = from;
+}
+
+;
+file_copy_options:
+/* empty */ { $$ = NULL; }
+| '(' file_copy_option_list ')' { $$ = $2; }
+;
+file_copy_option_list:
+file_copy_option { malloc_list_node($$, result->malloc_pool_, T_EXPR_LIST, 2, 1, $1); }
+| file_copy_option_list ',' file_copy_option { push_back_list(result->malloc_pool_, result, $$, $1, $3); }
+;
+file_copy_option:
+relation_name file_copy_value { malloc_non_terminal_node($$, result->malloc_pool_, T_EXPR_LIST, 2, $1, $2); }
+| relation_name { malloc_non_terminal_node($$, result->malloc_pool_, T_EXPR_LIST, 2, $1, NULL); }
+;
+file_copy_value:
+STRING_VALUE { $$ = $1; }
+| BOOL_VALUE { $$ = $1; }
+| relation_name { $$ = $1; }
+;
+
+file_table_expr:
+file_table_call file_table_alias
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_TABLE_COLLECTION_EXPRESSION, 2, $1, $2);
+  $$->value_ = 600492;
+}
+;
+file_table_call:
+NAME_OB '(' expr_list ')'
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS, 2, $1, $3);
+}
+;
+file_table_alias:
+/* empty */ %prec LOWER_PARENS { $$ = NULL; }
+| relation_name { $$ = $1; }
+| AS relation_name { $$ = $2; }
+;
 
 json_table_expr:
 JSON_TABLE '(' simple_expr ',' literal mock_jt_on_error_on_empty COLUMNS '(' jt_column_list ')' ')' relation_name

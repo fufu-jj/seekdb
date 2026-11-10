@@ -585,6 +585,7 @@ public:
       injected_random_status_(false),
       ori_question_marks_count_(0),
       type_demotion_flag_(0),
+      has_file_sql_(false),
       has_hybrid_search_(false)
   {
   }
@@ -628,6 +629,7 @@ public:
     ori_question_marks_count_ = 0;
     filter_ds_stat_cache_.reuse();
     type_demotion_flag_ = 0;
+    has_file_sql_ = false;
     has_hybrid_search_ = false;
   }
 
@@ -738,6 +740,7 @@ public:
       int8_t type_demotion_flag_reserved_   : 4;
     };
   };
+  bool has_file_sql_;
   bool has_hybrid_search_;
 };
 
