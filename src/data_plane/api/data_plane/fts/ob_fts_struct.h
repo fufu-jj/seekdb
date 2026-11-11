@@ -51,7 +51,11 @@ private:
   ObObjMeta meta_;
 };
 
-typedef common::hash::ObHashMap<ObFTWord, int64_t> ObFTWordMap;
+// A word map belongs to one document's synchronous segmentation call. Parallel
+// index builders and SQL expressions each own a separate map; shared dictionaries
+// and stopword sets use their own synchronized containers.
+typedef common::hash::ObHashMap<ObFTWord, int64_t,
+    common::hash::NoPthreadDefendMode> ObFTWordMap;
 
 class ObAddWordFlag final
 {

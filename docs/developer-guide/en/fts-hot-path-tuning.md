@@ -101,3 +101,50 @@ unmodified `tools/benchmark/fts_large_bench.sh` with `ROWS=20000 BATCH=500
 ROUNDS=3000 QUERY_ROUNDS=200 SAMPLES=3 WARMUP=30 SKIP_LOAD=0`, and score its
 report with the unmodified `fts_large_bench_score.py`. Keep hardware, compiler
 flags and instance settings identical between revisions.
+
+
+## Per-document word maps
+
+`ObFTWordMap` now uses `NoPthreadDefendMode`. Its instances are local to a
+synchronous TOKENIZE expression, index-row generation call, optimizer search
+term extraction, or execution-time search term extraction. Each parallel worker
+has a different map. The query token extraction paths use the shared type alias
+rather than a separately spelled hash-map type, so they obey the same ownership
+contract. No word map is published to another worker or retained in a shared
+parser, dictionary or stopword checker. Shared dictionaries and the stopword
+set retain their existing synchronization.
+
+The default map allocated and initialized a latch per bucket and acquired that
+latch for lookups and updates, even though the document's map has only one
+caller. Removing these local latches keeps the same hash, equality, bucket
+count, iteration order, frequency accumulation and last-spelling semantics.
+
+The server was fully rebuilt after changing the map type, including its query
+and data-plane callers. The same two FTS/text-analysis unity units were then
+rebuilt at O2, as in the preceding comparison. Three mysqltests and all 6,070
+local differential input groups passed again. A new regression,
+`fts_index/include/fts_word_map_concurrency.py`, passed 400 concurrent TOKENIZE
+comparisons on four connections, plus concurrent indexed writes with both
+commit and rollback, followed by MATCH checks, update and delete. Run it on a
+dedicated server with PyMySQL installed and `SEEKDB_TEST_PASSWORD` set.
+
+The full workload was repeated twice for the candidate against a fresh
+`8bf502e` baseline with the same mixed O0/O2 build settings.
+
+| Metric | Parent | Candidate run 1 | Candidate run 2 |
+| --- | ---: | ---: | ---: |
+| `build_ik_all_sec` | 11.168307 | 11.125723 | 11.156654 |
+| `build_ik_content_sec` | 9.003749 | 8.961952 | 8.905811 |
+| `build_beng_en_sec` | 5.273625 | 5.311173 | 5.272805 |
+| `tokenize_ik_avg_ms` | 0.143868 | 0.139197 | 0.142126 |
+| `tokenize_beng_avg_ms` | 0.094803 | 0.089480 | 0.091604 |
+| `query_cn_avg_ms` | 2.829125 | 2.772359 | 2.784706 |
+| `query_beng_avg_ms` | 4.233128 | 4.240071 | 4.241337 |
+| `query_mixed_avg_ms` | 3.122592 | 3.134622 | 3.117868 |
+| `query_limit_avg_ms` | 3.568084 | 3.604730 | 3.558207 |
+
+Category mean time reductions across the two candidate runs: build 0.22%, tokenize 3.36%, query 0.28%. Equal-category mean: 1.29%.
+Each candidate run had three tokenization/query samples. Construction has
+one sample per run. Small construction/query changes remain within observed
+noise; the measured tokenization benefit is modest. This is not a platform
+score prediction.
