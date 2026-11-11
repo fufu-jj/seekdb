@@ -19,7 +19,11 @@
 
 #include "lib/charset/ob_charset.h"
 #include "lib/lock/ob_bucket_lock.h"
+#include "lib/lock/ob_mutex.h"
+#include "lib/allocator/page_arena.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
+
+#include <atomic>
 
 namespace oceanbase
 {
@@ -93,10 +97,14 @@ private:
 };
 
 class ObFTCacheRangeContainer;
+class ObIFTDict;
 class ObFTDictHub
 {
 public:
-  ObFTDictHub() : is_inited_(false), dict_map_(), rw_dict_lock_() {}
+  ObFTDictHub()
+      : is_inited_(false), dict_map_(), rw_dict_lock_(), shared_dict_lock_(), shared_dict_allocator_(),
+        main_dict_cache_(nullptr), quan_dict_cache_(nullptr), main_dict_(nullptr), quan_dict_(nullptr)
+  {}
   ~ObFTDictHub() {}
 
   int init();
@@ -106,6 +114,8 @@ public:
   int build_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container);
 
   int load_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container);
+
+  int get_builtin_dict(const ObFTDictDesc &desc, ObIFTDict *&dict);
 
 private:
   int get_dict_info(const ObFTDictInfoKey &key, ObFTDictInfo &info);
@@ -118,6 +128,13 @@ private:
   // holds info of dict
   hash::ObHashMap<ObFTDictInfoKey, ObFTDictInfo> dict_map_;
   ObBucketLock rw_dict_lock_;
+  // Keep immutable built-in IK dictionaries and their cache pins shared across parser instances.
+  lib::ObMutex shared_dict_lock_;
+  common::ObArenaAllocator shared_dict_allocator_;
+  ObFTCacheRangeContainer *main_dict_cache_;
+  ObFTCacheRangeContainer *quan_dict_cache_;
+  std::atomic<ObIFTDict *> main_dict_;
+  std::atomic<ObIFTDict *> quan_dict_;
 };
 
 } //  namespace storage

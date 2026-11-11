@@ -23,6 +23,7 @@
 #include "lib/utility/ob_macro_utils.h"
 #include "storage/fts/dict/ob_ft_cache_container.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
+#include "storage/fts/dict/ob_ft_dict.h"
 #include "storage/fts/dict/ob_ft_range_dict.h"
 namespace oceanbase
 {
@@ -43,7 +44,32 @@ int ObFTDictHub::init()
 int ObFTDictHub::destroy()
 {
   int ret = OB_SUCCESS;
-  is_inited_ = false;
+  lib::ObMutexGuard guard(shared_dict_lock_);
+  if (OB_FAIL(guard.get_ret())) {
+  } else {
+    is_inited_ = false;
+    ObIFTDict *main_dict = main_dict_.exchange(nullptr);
+    ObIFTDict *quan_dict = quan_dict_.exchange(nullptr);
+    if (OB_NOT_NULL(main_dict)) {
+      main_dict->~ObIFTDict();
+      shared_dict_allocator_.free(main_dict);
+    }
+    if (OB_NOT_NULL(quan_dict)) {
+      quan_dict->~ObIFTDict();
+      shared_dict_allocator_.free(quan_dict);
+    }
+    if (OB_NOT_NULL(main_dict_cache_)) {
+      main_dict_cache_->~ObFTCacheRangeContainer();
+      shared_dict_allocator_.free(main_dict_cache_);
+      main_dict_cache_ = nullptr;
+    }
+    if (OB_NOT_NULL(quan_dict_cache_)) {
+      quan_dict_cache_->~ObFTCacheRangeContainer();
+      shared_dict_allocator_.free(quan_dict_cache_);
+      quan_dict_cache_ = nullptr;
+    }
+    shared_dict_allocator_.reset();
+  }
   return ret;
 }
 int ObFTDictHub::build_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container)
@@ -111,6 +137,61 @@ int ObFTDictHub::load_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &c
     }
   }
 
+  return ret;
+}
+
+int ObFTDictHub::get_builtin_dict(const ObFTDictDesc &desc, ObIFTDict *&dict)
+{
+  int ret = OB_SUCCESS;
+  std::atomic<ObIFTDict *> *cached_dict = nullptr;
+  ObFTCacheRangeContainer **cache_container = nullptr;
+
+  if (ObFTDictType::DICT_IK_MAIN == desc.type_) {
+    cached_dict = &main_dict_;
+    cache_container = &main_dict_cache_;
+  } else if (ObFTDictType::DICT_IK_QUAN == desc.type_) {
+    cached_dict = &quan_dict_;
+    cache_container = &quan_dict_cache_;
+  } else {
+    ret = OB_NOT_SUPPORTED;
+  }
+
+  if (OB_FAIL(ret)) {
+  } else if (!is_inited_) {
+    ret = OB_NOT_INIT;
+  } else if (OB_NOT_NULL(dict = cached_dict->load(std::memory_order_acquire))) {
+  } else {
+    lib::ObMutexGuard guard(shared_dict_lock_);
+    if (OB_FAIL(guard.get_ret())) {
+    } else if (OB_NOT_NULL(dict = cached_dict->load(std::memory_order_relaxed))) {
+    } else {
+      if (OB_ISNULL(*cache_container = OB_NEWx(ObFTCacheRangeContainer,
+                                               &shared_dict_allocator_,
+                                               shared_dict_allocator_))) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
+      } else if (OB_FAIL(load_cache(desc, **cache_container))) {
+        if (OB_ENTRY_NOT_EXIST == ret) {
+          if (OB_FAIL(build_cache(desc, **cache_container))) {
+          }
+        }
+      }
+
+      ObFTRangeDict *new_dict = nullptr;
+      if (OB_FAIL(ret)) {
+      } else if (OB_ISNULL(new_dict = OB_NEWx(ObFTRangeDict,
+                                              &shared_dict_allocator_,
+                                              shared_dict_allocator_,
+                                              *cache_container,
+                                              desc))) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
+      } else if (OB_FAIL(new_dict->init())) {
+        OB_DELETEx(ObFTRangeDict, &shared_dict_allocator_, new_dict);
+      } else {
+        dict = new_dict;
+        cached_dict->store(dict, std::memory_order_release);
+      }
+    }
+  }
   return ret;
 }
 
