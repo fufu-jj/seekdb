@@ -1,0 +1,41 @@
+# owner group: storage
+# Regression: dictionary range dispatch, processor order, frequency grouping and
+# BENG token storage after its normalizer and iterator have been released.
+--disable_warnings
+drop database if exists fts_hot_path;
+create database fts_hot_path;
+use fts_hot_path;
+--enable_warnings
+set names utf8mb4;
+set ob_query_timeout = 10000000000;
+
+select tokenize('Database DATABASE database audit Audit audit tokenizer TOKENIZER', 'beng', '[{"output":"all"}]');
+select tokenize('First longerword x Third finalword', 'beng', '[{"output":"all"}]');
+select tokenize('École Straße CAFÉ naïve OceanBase ＡＢＣ 中文 abc123', 'beng', '[{"output":"all"}]');
+select tokenize('!!! ... --- the and www', 'beng', '[{"output":"all"}]');
+# Collation-equivalent tokens retain the last spelling when frequencies merge.
+select tokenize('ἀ ἁ' collate utf8mb4_general_ci, 'beng', '[{"output":"all"}]');
+select tokenize('ἁ ἀ' collate utf8mb4_general_ci, 'beng', '[{"output":"all"}]');
+select tokenize('中华人民共和国人民大会堂 全文索引 分词器', 'ik', '[{"output":"all"},{"additional_args":[{"ik_mode":"smart"}]}]');
+select tokenize('中华人民共和国人民大会堂 全文索引 分词器', 'ik', '[{"output":"all"},{"additional_args":[{"ik_mode":"max_word"}]}]');
+select tokenize('ABC 12.5公斤 一百二十三平方米 OceanBase数据库 ٣１２ ABC-123', 'ik', '[{"output":"all"}]');
+select tokenize('一 龥 㐀 䶵 豈 龎 𠀀 𪛖 😀 あいうえお 한글 A z 0 9', 'ik', '[{"output":"all"}]');
+select tokenize('一一列举 龟龙麟凤 一一列举 龟龙麟凤', 'ik', '[{"output":"all"}]');
+create table docs(id int primary key, body varchar(16000));
+insert into docs values
+(1, 'FirstToken longerword lastword'),
+(2, repeat('UniqueWord Database audit ', 150)),
+(3, 'École Straße CAFÉ 中文 abc123'),
+(4, '数据库全文索引 一百二十三平方米'),
+(5, ''), (6, null);
+select id, tokenize(body, 'beng', '[{"output":"all"}]') from docs order by id;
+select id, tokenize(body, 'ik', '[{"output":"all"}]') from docs where id = 4;
+alter table docs add fulltext index f_beng(body) with parser beng;
+select id from docs where match(body) against('database audit') order by id;
+select id, round(match(body) against('database audit'), 6) as relevance from docs where match(body) against('database audit') order by id;
+update docs set body = 'replacement audit' where id = 2;
+select id from docs where match(body) against('database') order by id;
+select id from docs where match(body) against('replacement audit') order by id;
+delete from docs where id = 2;
+select count(*) from docs where match(body) against('replacement audit');
+drop database fts_hot_path;

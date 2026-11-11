@@ -29,7 +29,8 @@ public:
   ObTextAnalysisCtx()
     : cs_(nullptr),
       filter_stopword_(true),
-      need_grouping_(false)
+      need_grouping_(false),
+      token_output_allocator_(nullptr)
   {}
   ~ObTextAnalysisCtx() = default;
   bool is_valid() const { return nullptr != cs_; }
@@ -38,12 +39,15 @@ public:
     cs_ = nullptr;
     filter_stopword_ = true;
     need_grouping_ = false;
+    token_output_allocator_ = nullptr;
   }
   TO_STRING_KV(KP_(cs), K_(filter_stopword), K_(need_grouping));
 public:
   const ObCharsetInfo *cs_;
   bool filter_stopword_;
   bool need_grouping_;
+  // Optional storage for normalized tokens that must outlive the analyzer.
+  ObIAllocator *token_output_allocator_;
   // language type
   // word segmentation parser type
   // specified normalization tricks

@@ -198,20 +198,19 @@ int ObAddWord::check_stopword(const ObFTWord &ft_word, bool &is_stopword)
 int ObAddWord::groupby_word(const ObFTWord &word, const int64_t word_freq)
 {
   int ret = OB_SUCCESS;
-  int64_t word_count = 0;
   if (OB_UNLIKELY(word.empty() || word_freq <= 0)) {
     ret = OB_INVALID_ARGUMENT;
   } else if (!flag_.groupby_word()) {
     if (OB_FAIL(word_map_.set_refactored(word, 1/*word count*/))) {
     }
-  } else if (OB_FAIL(word_map_.get_refactored(word, word_count)) && OB_HASH_NOT_EXIST != ret) {
   } else {
-    if (OB_HASH_NOT_EXIST == ret) {
-      word_count = 1;
-    } else {
-      word_count += word_freq;
-    }
-    if (OB_FAIL(word_map_.set_refactored(word, word_count, 1/*overwrite*/))) {
+    // Preserve both the count and the latest spelling of collation-equivalent
+    // words, as set_refactored(overwrite=1) did, with one lookup and bucket lock.
+    auto add_frequency = [&word, word_freq](auto &entry) {
+      entry.first = word;
+      entry.second += word_freq;
+    };
+    if (OB_FAIL(word_map_.set_or_update(word, 1/*first occurrence*/, add_frequency))) {
     }
   }
   return ret;

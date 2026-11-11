@@ -20,6 +20,7 @@
 #include "storage/fts/dict/ob_ik_dic.h"
 #include "lib/allocator/page_arena.h"
 #include "lib/charset/ob_charset.h"
+#include "lib/charset/ob_charset_string_helper.h"
 #include "common/mysqlclient/ob_isql_client.h"
 #include "lib/ob_errno.h"
 #include "lib/oblog/ob_log_module.h"
@@ -382,6 +383,16 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
 {
   int ret = OB_SUCCESS;
   bool found = false;
+  if (nullptr != bmp_dicts_ && !single_word.empty()) {
+    ob_wc_t codepoint = 0;
+    const unsigned char *begin = reinterpret_cast<const unsigned char *>(single_word.ptr());
+    const int len = common::ob_charset_decode_unicode<CHARSET_UTF8MB4>(
+        begin, begin + single_word.length(), codepoint);
+    if (len == single_word.length() && codepoint < BMP_CHAR_COUNT) {
+      dict = bmp_dicts_[codepoint];
+      return nullptr == dict ? OB_ENTRY_NOT_EXIST : OB_SUCCESS;
+    }
+  }
   for (int i = 0; OB_SUCC(ret) && !found && i < range_dicts_.size(); ++i) {
     if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
                           range_dicts_[i].start_.get_word(),
@@ -398,6 +409,44 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
   if (!found) {
     // not found, dis match
     ret = OB_ENTRY_NOT_EXIST;
+  }
+  return ret;
+}
+
+int ObFTRangeDict::build_bmp_lookup()
+{
+  int ret = OB_SUCCESS;
+  if (desc_.charset_ != CHARSET_UTF8MB4 || desc_.coll_type_ != CS_TYPE_UTF8MB4_BIN) {
+    // Preserve the range comparator for other encodings and collations.
+  } else if (OB_ISNULL(bmp_dicts_ = static_cast<ObIFTDict **>(
+      range_alloc_.alloc(BMP_CHAR_COUNT * sizeof(*bmp_dicts_))))) {
+    ret = OB_ALLOCATE_MEMORY_FAILED;
+  } else {
+    MEMSET(bmp_dicts_, 0, BMP_CHAR_COUNT * sizeof(*bmp_dicts_));
+    for (int64_t i = 0; OB_SUCC(ret) && i < range_dicts_.size(); ++i) {
+      const ObFTRange &range = range_dicts_[i];
+      const ObString first = range.start_.get_word();
+      const ObString last = range.end_.get_word();
+      const unsigned char *first_ptr = reinterpret_cast<const unsigned char *>(first.ptr());
+      const unsigned char *last_ptr = reinterpret_cast<const unsigned char *>(last.ptr());
+      ob_wc_t first_cp = 0;
+      ob_wc_t last_cp = 0;
+      if (common::ob_charset_decode_unicode<CHARSET_UTF8MB4>(
+              first_ptr, first_ptr + first.length(), first_cp) != first.length()
+          || common::ob_charset_decode_unicode<CHARSET_UTF8MB4>(
+              last_ptr, last_ptr + last.length(), last_cp) != last.length()) {
+        ret = OB_INVALID_ARGUMENT;
+      } else {
+        // UTF8MB4_BIN orders single valid characters by Unicode codepoint.
+        // Retain the first matching range if ranges overlap, as the scan does.
+        const ob_wc_t end = MIN(last_cp, static_cast<ob_wc_t>(BMP_CHAR_COUNT - 1));
+        for (ob_wc_t cp = first_cp; cp <= end; ++cp) {
+          if (nullptr == bmp_dicts_[cp]) {
+            bmp_dicts_[cp] = range.dict_;
+          }
+        }
+      }
+    }
   }
   return ret;
 }
@@ -421,6 +470,9 @@ int ObFTRangeDict::build_dict_from_cache(const ObFTCacheRangeContainer &range_co
       if (OB_FAIL(range_dicts_.push_back(range))) {
       }
     }
+  }
+  if (OB_SUCC(ret)) {
+    ret = build_bmp_lookup();
   }
   return ret;
 }

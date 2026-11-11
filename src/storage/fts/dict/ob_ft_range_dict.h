@@ -39,7 +39,7 @@ public:
                 ObFTCacheRangeContainer *range_container,
                 const ObFTDictDesc &desc)
       : is_inited_(false), desc_(desc), range_alloc_(lib::ObMemAttr("Range Dict")),
-        range_dicts_(&range_alloc_), range_container_(range_container)
+        range_dicts_(&range_alloc_), range_container_(range_container), bmp_dicts_(nullptr)
   {
   }
   ~ObFTRangeDict() override{};
@@ -95,9 +95,11 @@ private:
     }
     range_dicts_.reset();
     range_alloc_.reset();
+    bmp_dicts_ = nullptr;
   }
 
   int find_first_char_range(const ObString &single_word, ObIFTDict *&dict) const;
+  int build_bmp_lookup();
 
 private:
   static constexpr int DEFAULT_KEY_PER_RANGE = 50000; // by estimated
@@ -106,6 +108,10 @@ private:
   ObArenaAllocator range_alloc_;
   ObVector<ObFTRange, ObArenaAllocator> range_dicts_;
   ObFTCacheRangeContainer *range_container_; // only used to read cache
+  // Read-only after initialization; supplementary or invalid characters use
+  // the original range search.
+  static constexpr int64_t BMP_CHAR_COUNT = 1 << 16;
+  ObIFTDict **bmp_dicts_;
 
 private:
   DISALLOW_COPY_AND_ASSIGN(ObFTRangeDict);

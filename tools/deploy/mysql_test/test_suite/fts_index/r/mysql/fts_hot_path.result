@@ -1,0 +1,74 @@
+drop database if exists fts_hot_path;
+create database fts_hot_path;
+use fts_hot_path;
+set names utf8mb4;
+set ob_query_timeout = 10000000000;
+select tokenize('Database DATABASE database audit Audit audit tokenizer TOKENIZER', 'beng', '[{"output":"all"}]');
+tokenize('Database DATABASE database audit Audit audit tokenizer TOKENIZER', 'beng', '[{"output":"all"}]')
+{"tokens": [{"audit": 3}, {"tokenizer": 2}, {"database": 3}], "doc_len": 8}
+select tokenize('First longerword x Third finalword', 'beng', '[{"output":"all"}]');
+tokenize('First longerword x Third finalword', 'beng', '[{"output":"all"}]')
+{"tokens": [{"finalword": 1}, {"longerword": 1}, {"first": 1}, {"third": 1}], "doc_len": 4}
+select tokenize('École Straße CAFÉ naïve OceanBase ＡＢＣ 中文 abc123', 'beng', '[{"output":"all"}]');
+tokenize('École Straße CAFÉ naïve OceanBase ＡＢＣ 中文 abc123', 'beng', '[{"output":"all"}]')
+{"tokens": [{"café": 1}, {"straße": 1}, {"naïve": 1}, {"abc123": 1}, {"oceanbase": 1}, {"école": 1}, {"中文": 1}, {"ａｂｃ": 1}], "doc_len": 8}
+select tokenize('!!! ... --- the and www', 'beng', '[{"output":"all"}]');
+tokenize('!!! ... --- the and www', 'beng', '[{"output":"all"}]')
+{"tokens": [{"and": 1}], "doc_len": 1}
+select tokenize('ἀ ἁ' collate utf8mb4_general_ci, 'beng', '[{"output":"all"}]');
+tokenize('ἀ ἁ' collate utf8mb4_general_ci, 'beng', '[{"output":"all"}]')
+{"tokens": [{"ἁ": 2}], "doc_len": 2}
+select tokenize('ἁ ἀ' collate utf8mb4_general_ci, 'beng', '[{"output":"all"}]');
+tokenize('ἁ ἀ' collate utf8mb4_general_ci, 'beng', '[{"output":"all"}]')
+{"tokens": [{"ἀ": 2}], "doc_len": 2}
+select tokenize('中华人民共和国人民大会堂 全文索引 分词器', 'ik', '[{"output":"all"},{"additional_args":[{"ik_mode":"smart"}]}]');
+tokenize('中华人民共和国人民大会堂 全文索引 分词器', 'ik', '[{"output":"all"},{"additional_args":[{"ik_mode":"smart"}]}]')
+{"tokens": [{"人民大会堂": 1}, {"分词器": 1}, {"全文索引": 1}, {"中华人民共和国": 1}], "doc_len": 4}
+select tokenize('中华人民共和国人民大会堂 全文索引 分词器', 'ik', '[{"output":"all"},{"additional_args":[{"ik_mode":"max_word"}]}]');
+tokenize('中华人民共和国人民大会堂 全文索引 分词器', 'ik', '[{"output":"all"},{"additional_args":[{"ik_mode":"max_word"}]}]')
+{"tokens": [{"大会": 1}, {"器": 1}, {"人民大会堂": 1}, {"大会堂": 1}, {"共和国": 1}, {"人民大会": 1}, {"索引": 1}, {"人民共和国": 1}, {"中华人民": 1}, {"分词器": 1}, {"共和": 1}, {"全文": 1}, {"分词": 1}, {"会堂": 1}, {"中华": 1}, {"全文索引": 1}, {"中华人民共和国": 1}, {"国人": 1}, {"华人": 1}, {"人民": 2}], "doc_len": 21}
+select tokenize('ABC 12.5公斤 一百二十三平方米 OceanBase数据库 ٣１２ ABC-123', 'ik', '[{"output":"all"}]');
+tokenize('ABC 12.5公斤 一百二十三平方米 OceanBase数据库 ٣１２ ABC-123', 'ik', '[{"output":"all"}]')
+{"tokens": [{"１２": 1}, {"oceanbase": 1}, {"平方米": 1}, {"一百二十三": 1}, {"数据库": 1}, {"12.5公斤": 1}, {"abc": 1}, {"abc-123": 1}], "doc_len": 8}
+select tokenize('一 龥 㐀 䶵 豈 龎 𠀀 𪛖 😀 あいうえお 한글 A z 0 9', 'ik', '[{"output":"all"}]');
+tokenize('一 龥 㐀 䶵 豈 龎 𠀀 𪛖 😀 あいうえお 한글 A z 0 9', 'ik', '[{"output":"all"}]')
+{"tokens": [{"0": 1}, {"9": 1}, {"a": 1}, {"お": 1}, {"龎": 1}, {"龥": 1}, {"한": 1}, {"豈": 1}, {"㐀": 1}, {"䶵": 1}, {"글": 1}, {"う": 1}, {"あ": 1}, {"い": 1}, {"一": 1}, {"え": 1}, {"z": 1}], "doc_len": 17}
+select tokenize('一一列举 龟龙麟凤 一一列举 龟龙麟凤', 'ik', '[{"output":"all"}]');
+tokenize('一一列举 龟龙麟凤 一一列举 龟龙麟凤', 'ik', '[{"output":"all"}]')
+{"tokens": [{"一一列举": 2}, {"龟龙麟凤": 2}], "doc_len": 4}
+create table docs(id int primary key, body varchar(16000));
+insert into docs values
+(1, 'FirstToken longerword lastword'),
+(2, repeat('UniqueWord Database audit ', 150)),
+(3, 'École Straße CAFÉ 中文 abc123'),
+(4, '数据库全文索引 一百二十三平方米'),
+(5, ''), (6, null);
+select id, tokenize(body, 'beng', '[{"output":"all"}]') from docs order by id;
+id	tokenize(body, 'beng', '[{"output":"all"}]')
+1	{"tokens": [{"longerword": 1}, {"lastword": 1}, {"firsttoken": 1}], "doc_len": 3}
+2	{"tokens": [{"audit": 150}, {"database": 150}, {"uniqueword": 150}], "doc_len": 450}
+3	{"tokens": [{"café": 1}, {"straße": 1}, {"abc123": 1}, {"école": 1}, {"中文": 1}], "doc_len": 5}
+4	{"tokens": [{"一百二十三平方米": 1}, {"数据库全文索引": 1}], "doc_len": 2}
+5	{"tokens": [], "doc_len": 0}
+6	{"tokens": [], "doc_len": 0}
+select id, tokenize(body, 'ik', '[{"output":"all"}]') from docs where id = 4;
+id	tokenize(body, 'ik', '[{"output":"all"}]')
+4	{"tokens": [{"平方米": 1}, {"一百二十三": 1}, {"数据库": 1}, {"全文索引": 1}], "doc_len": 4}
+alter table docs add fulltext index f_beng(body) with parser beng;
+select id from docs where match(body) against('database audit') order by id;
+id
+2
+select id, round(match(body) against('database audit'), 6) as relevance from docs where match(body) against('database audit') order by id;
+id	relevance
+2	5.511714
+update docs set body = 'replacement audit' where id = 2;
+select id from docs where match(body) against('database') order by id;
+id
+select id from docs where match(body) against('replacement audit') order by id;
+id
+2
+delete from docs where id = 2;
+select count(*) from docs where match(body) against('replacement audit');
+count(*)
+0
+drop database fts_hot_path;

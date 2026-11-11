@@ -39,7 +39,7 @@ public:
         coll_type_(ObCollationType::CS_TYPE_INVALID),
         ctx_(nullptr),
         hub_(hub),
-        segmenters_(allocator_),
+        segmenters_{nullptr, nullptr, nullptr, nullptr},
         dict_main_(nullptr),
         dict_quan_(nullptr)
   {
@@ -83,7 +83,7 @@ private:
   ObCollationType coll_type_;
   TokenizeContext *ctx_;
   ObFTDictHub *hub_;
-  ObList<ObIIKProcessor *, ObIAllocator> segmenters_;
+  ObIIKProcessor *segmenters_[4];
 
   ObIFTDict *dict_main_;
   ObIFTDict *dict_quan_;
